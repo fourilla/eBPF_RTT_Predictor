@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>실시간 RTT 예측 모니터링 (연속 그래프)</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.4.0/dist/chartjs-plugin-annotation.min.js"></script>
+
+    <style>
+        /* ... (CSS 부분은 이전과 동일) ... */
+        body {
+          font-family: 'Malgun Gothic', sans-serif;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 20px;
+          background: #f0f2f5;
+          padding: 20px;
+        }
+        .main-container {
+          display: flex;
+          gap: 20px;
+          width: 100%;
+          max-width: 1300px;
+        }
+        .chart-container {
+          flex-grow: 1;
+          background: white;
+          border-radius: 12px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+          padding: 20px;
+          min-width: 700px;
+          position: relative;
+        }
+        canvas { height: 280px; }
+        .panels-container { display: flex; flex-direction: column; gap: 20px; }
+        .panel {
+          background: white; border-radius: 12px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+          padding: 20px; width: 250px;
+        }
+        h2 {
+          margin: 0 0 15px 0;
+          text-align: center;
+          font-size: 1.3em;
+          border-bottom: 2px solid #e0e0e0;
+          padding-bottom: 8px;
+        }
+        #data-table {
+          width: 100%;
+          margin-top: 20px;
+          border-collapse: collapse;
+          font-size: 14px;
+          text-align: center;
+        }
+        #data-table th, #data-table td {
+          border: 1px solid #e0e0e0;
+          padding: 10px 8px;
+        }
+        #data-table tbody tr:nth-child(even) { background-color: #fcfcfc; }
+        #data-table tbody tr:hover { background-color: #e6f7ff; }
+
+        .actual-val { color: #007bff; font-weight: bold; }
+        .pred-val { color: #ff7f0e; font-weight: bold; }
+
+        .monitor-btn {
+          width: 100%;
+          padding: 10px;
+          background: #007bff;
+          color: white;
+          border: none;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 15px;
+          margin-top: 10px;
+        }
+        .monitor-btn:hover { background: #0056cc; }
+
+        /* 상세 데이터 모달 */
+        #detail-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            justify-content: center;
+            align-items: center;
+            z-index: 900;
+        }
+        #detail-content {
+            background: white;
+            padding: 20px;
+            width: 600px;
+            border-radius: 12px;
+            max-height: 80%;
+            overflow-y: auto;
+        }
+
+        /* 도움말 */
+        #help-btn {
+            position: fixed;
+            right: 20px;
+            top: 20px;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #007bff;
+            color: white;
+            border: none;
+            font-size: 22px;
+            cursor: pointer;
+            z-index: 999;
+        }
+
+        /* 도움말 모달 */
+        #help-modal {
+            display:none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.75);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        #help-box {
+            background: white;
+            width: 70%;
+            max-width: 800px;
+            padding: 20px;
+            border-radius: 12px;
+            position: relative;
+            text-align: center;
+        }
+
+        .slide-btn {
+            padding: 10px 22px;
+            border-radius: 10px;
+            border: none;
+            background: #f0f0f0;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin: 0 8px;
+            transition: 0.2s ease;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+        }
+
+        .slide-btn:hover {
+            background: #e2e2e2;
+            transform: translateY(-2px);
+        }
+
+        .slide-btn:active {
+            background: #d5d5d5;
+            transform: translateY(1px);
+        }
+
+    </style>
+</head>
+
+<body>
+
+<button id="help-btn">?</button>
+
+<div class="main-container">
+    <div class="chart-container">
+        <h2>RTT 예측 (서버 시간 기반)</h2>
+        <canvas id="chart"></canvas>
+    </div>
+
+    <div class="panels-container">
+
+        <div class="panel">
+            <h2>실시간 데이터</h2>
+            <table id="data-table">
+                <thead>
+                <tr>
+                    <th>시간</th>
+                    <th>RTT (ms)</th>
+                    <th>10초 뒤 예측</th>
+                </tr>
+                </thead>
+                <tbody id="table-body"></tbody>
+            </table>
+        </div>
+
+        <div class="panel">
+            <h2>임계값 설정</h2>
+            <input type="number" id="threshold-input" value="800"
+                   style="width:100%; padding:8px; font-size:14px; margin-bottom:10px;">
+            <button class="monitor-btn" onclick="setThreshold()">임계값 저장</button>
+            <div id="alert-box" style="margin-top:15px; color:red; font-weight:bold; text-align:center;"></div>
+        </div>
+
+        <div class="panel">
+            <h2>시스템 메트릭 모니터링</h2>
+            <button class="monitor-btn" onclick="window.open('/monitor','_blank');">
+                /monitor 열기
+            </button>
+        </div>
+
+    </div>
+</div>
+
+
+<div id="detail-modal">
+    <div id="detail-content"></div>
+</div>
+
+
+<div id="help-modal">
+    <div id="help-box">
+
+        <button onclick="closeHelp()"
+                style="position:absolute; right:15px; top:15px; font-size:24px; border:none; background:none; cursor:pointer;">
+            &times;
+        </button>
+
+        <img id="help-image" src="/static/tutorial1.png"
+             style="width:100%; border-radius:12px;">
+
+        <div style="margin-top:10px;">
+            <button class="slide-btn" onclick="prevHelpImage()"><</button>
+            <button class="slide-btn" onclick="nextHelpImage()">></button>
+        </div>
+
+
+        <div id="help-page-indicator" style="margin-top:10px; font-weight:bold;">
+            1 / 5
+        </div>
+    </div>
+</div>
+
+
+<script>
+/* 기본 그래프 기능 및 변수 정의 */
+const ctx = document.getElementById('chart').getContext('2d');
+
+const HISTORY_SIZE = 991;
+const FUTURE_SIZE = 10;
+const TOTAL_POINTS = HISTORY_SIZE + FUTURE_SIZE;
+
+let timeLabels = new Array(TOTAL_POINTS).fill("");
+let actualData = new Array(TOTAL_POINTS).fill(null);
+let predictionHistory = new Array(TOTAL_POINTS).fill(null);
+
+const CURRENT_INDEX = HISTORY_SIZE - 1;
+
+let threshold = 800;
+
+function setThreshold() {
+    threshold = Number(document.getElementById("threshold-input").value);
+    chart.options.scales.y.max = threshold * 1.5;
+
+    chart.options.plugins.annotation.annotations.thresholdLine.yMin = threshold;
+    chart.options.plugins.annotation.annotations.thresholdLine.yMax = threshold;
+    chart.options.plugins.annotation.annotations.thresholdLine.label.content =
+        `임계값 ${threshold}ms`;
+
+    chart.update();
+}
+
+function formatTime(date) {
+  const h = String(date.getHours()).padStart(2,'0');
+  const m = String(date.getMinutes()).padStart(2,'0');
+  const s = String(date.getSeconds()).padStart(2,'0');
+  return `${h}:${m}:${s}`;
+}
+
+function parseTime(t) {
+  const [h,m,s] = t.split(':').map(Number);
+  const d = new Date();
+  d.setHours(h,m,s,0);
+  return d;
+}
+
+function initLabels() {
+  const now = new Date();
+  for (let i=-HISTORY_SIZE+1; i<=0; i++) {
+    timeLabels[HISTORY_SIZE-1+i] = formatTime(new Date(now.getTime()+i*1000));
+  }
+  for (let i=1; i<=FUTURE_SIZE; i++) {
+    timeLabels[CURRENT_INDEX+i] = formatTime(new Date(now.getTime()+i*1000));
+  }
+}
+initLabels();
+
+/* Chart.js 구성 */
+const chart = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: timeLabels,
+    datasets: [
+      {
+        label: 'Actual RTT',
+        data: actualData,
+        borderColor: '#007bff',
+        tension: 0.2,
+        pointRadius: 1
+      },
+      {
+        label: 'Prediction RTT',
+        data: predictionHistory,
+        borderColor: '#ff7f0e',
+        borderDash: [5,5],
+        tension: 0.2,
+        pointRadius: 1
+      }
+    ]
+  },
+  options: {
+    animation: false,
+    responsive: true,
+    scales: {
+      y: { min: 0, max: threshold * 1.5 }
+    },
+    plugins: {
+      legend: { position: 'top' },
+      annotation: {
+        annotations: {
+          nowLine: {
+            type:'line',
+            xMin: CURRENT_INDEX,
+            xMax: CURRENT_INDEX,
+            borderColor:'red',
+            borderWidth:2,
+            label:{ enabled:true, content:'현재', position: 'start'}
+          },
+          thresholdLine: {
+            type:'line',
+            yMin:threshold, yMax:threshold,
+            borderColor:'purple',
+            borderDash:[6,6],
+            borderWidth:2,
+            label:{ enabled:true, content:`임계값 ${threshold}ms`, position: 'start'}
+          }
+        }
+      }
+    }
+  }
+});
+
+/* 그래프 클릭 → 상세 정보 */
+document.getElementById('chart').addEventListener('click', function(evt) {
+    const points = chart.getElementsAtEventForMode(evt, 'nearest', { intersect: false }, true);
+
+    if (!points || points.length === 0) return;
+
+    const idx = points[0].index;
+    const actualVal = actualData[idx];
+    const predVal = predictionHistory[idx];
+    const time = timeLabels[idx];
+
+    if (actualVal === null && predVal === null) return;
+
+    const html = `
+        <h3 style="text-align:center;">상세 정보</h3>
+        <table style="width:100%; border-collapse:collapse; text-align:center;">
+            <tr><th style="padding:8px;">시간</th><td>${time}</td></tr>
+            <tr><th style="padding:8px;">RTT</th><td>${actualVal !== null ? actualVal.toFixed(2) : '-'}</td></tr>
+            <tr><th style="padding:8px;">예측</th><td>${predVal !== null ? predVal.toFixed(2) : '-'}</td></tr>
+        </table>
+    `;
+
+    const modal = document.getElementById("detail-modal");
+    document.getElementById("detail-content").innerHTML = html;
+    modal.style.display = "flex";
+});
+
+// 모달 닫기
+document.getElementById("detail-modal").addEventListener('click', function(e){
+    if (e.target.id === 'detail-modal') {
+        this.style.display = 'none';
+    }
+});
+
+/* 실시간 fetch */
+async function fetchData() {
+  try {
+    const res = await fetch('/predict');
+
+    if (!res.ok) {
+        const errorText = await res.text();
+        document.getElementById("alert-box").innerText =
+            `데이터 로드 실패: 서버 상태 ${res.status}`;
+        return;
+    }
+
+    const json = await res.json();
+
+    const actual = json.actual;
+    const future10 = json.prediction;
+    const timeStr = json.time;
+
+    const nowDate = parseTime(timeStr);
+
+    // 레이블 업데이트
+    timeLabels.shift();
+    timeLabels.push(formatTime(new Date(nowDate.getTime() + FUTURE_SIZE * 1000)));
+
+    // actualData 업데이트
+    for (let i = 0; i < CURRENT_INDEX; i++) actualData[i] = actualData[i + 1];
+    actualData[CURRENT_INDEX] = actual;
+    for (let i = CURRENT_INDEX + 1; i < TOTAL_POINTS; i++) actualData[i] = null;
+
+    // predictionHistory 업데이트
+    for (let i = 0; i < TOTAL_POINTS - 1; i++) predictionHistory[i] = predictionHistory[i + 1];
+    predictionHistory[TOTAL_POINTS - 1] = future10;
+
+    chart.update();
+
+    // 테이블 갱신 및 임계값 체크
+    const tb = document.getElementById("table-body");
+    const row = tb.insertRow(0);
+    row.innerHTML = `
+        <td>${timeStr}</td>
+        <td class="actual-val">${actual.toFixed(2)}</td>
+        <td class="pred-val">${future10.toFixed(2)}</td>
+    `;
+    if (tb.rows.length > 5) tb.deleteRow(5);
+
+    if (future10 > threshold) {
+        row.cells[2].style.color = 'red';
+        document.getElementById("alert-box").innerText =
+          `RTT 예측값 (${future10.toFixed(2)}ms) 이 임계값을 초과했습니다!`;
+    } else {
+        row.cells[2].style.color = '#ff7f0e';
+        document.getElementById("alert-box").innerText = '';
+    }
+
+  } catch (e) {
+    document.getElementById("alert-box").innerText =
+        `데이터 파싱 오류: 서버 응답이 유효한 JSON 형식이 아닙니다.`;
+    console.error(e);
+  }
+}
+
+setInterval(fetchData, 1000);
+
+/* 도움말 모달 */
+const helpImages = [
+    "/static/tutorial1.png",
+    "/static/tutorial2.png",
+    "/static/tutorial3.png",
+    "/static/tutorial4.png",
+    "/static/tutorial5.png"
+];
+
+let helpIndex = 0;
+
+document.getElementById("help-btn").onclick = function () {
+    document.getElementById("help-modal").style.display = "flex";
+    updateHelpModal();
+};
+
+function closeHelp() { document.getElementById("help-modal").style.display = "none"; }
+
+function prevHelpImage() { helpIndex = (helpIndex - 1 + helpImages.length) % helpImages.length; updateHelpModal(); }
+function nextHelpImage() { helpIndex = (helpIndex + 1) % helpImages.length; updateHelpModal(); }
+
+function updateHelpModal() {
+    document.getElementById("help-image").src = helpImages[helpIndex];
+    document.getElementById("help-page-indicator").innerText =
+        `${helpIndex + 1} / ${helpImages.length}`;
+}
+
+document.getElementById("help-modal").onclick = function (e) {
+    if (e.target === this) closeHelp();
+};
+</script>
+
+</body>
+</html>

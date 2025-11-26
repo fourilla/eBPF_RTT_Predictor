@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>실시간 시스템 메트릭 모니터링</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #e9eef3;
+            padding: 20px;
+            margin: 0;
+        }
+        .dashboard-container {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            grid-template-rows: 250px auto;
+            gap: 15px;
+            max-width: 1500px;
+            margin: 0 auto;
+        }
+        .kpi-chart {
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            padding: 15px;
+            grid-row: 1 / 2;
+        }
+        .table-panel {
+            grid-column: 1 / 5;
+            grid-row: 2 / 3;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            padding: 20px;
+            overflow-x: auto;
+        }
+        .table-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+        h2 { color: #333; margin: 0; }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+            table-layout: fixed;
+        }
+        .data-table th, .data-table td {
+            padding: 10px 8px;
+            border-bottom: 1px solid #f0f0f0;
+            text-align: left;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .data-table th { background-color: #f8f8f8; font-weight: 600; color: #555; white-space: nowrap; }
+        .data-table td:first-child { font-weight: bold; }
+        .updated { background-color: #e6f7ff; transition: background-color 0.5s ease-out; }
+        .sparkline-container { width: 100px; height: 30px; margin: 0 auto; }
+        .recent-val { text-align: right; font-family: monospace; min-width: 60px; }
+        .latest-val { font-weight: bold; color: #007bff; }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.4);
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .modal-content {
+            background-color: #fefefe;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 1200px;
+            max-height: 85vh;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 18px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .modal-body {
+            padding: 10px 12px 18px 12px;
+            overflow: auto;
+        }
+
+        .modal-table-wrapper {
+            width: 100%;
+            overflow: visible;
+        }
+
+        .modal-table {
+            border-collapse: collapse;
+            font-size: 12px;
+            width: max-content;
+            min-width: 100%;
+        }
+        .modal-table th, .modal-table td {
+            border: 1px solid #ddd;
+            padding: 5px 6px;
+            text-align: right;
+            white-space: nowrap;
+        }
+        .modal-table th {
+            background-color: #f2f2f2;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+        }
+        .modal-table td:first-child {
+            text-align: left;
+        }
+
+        .close-btn {
+            color: #aaa;
+            font-size: 22px;
+            font-weight: bold;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+        }
+
+        @media (max-width: 900px) {
+            .dashboard-container { grid-template-columns: repeat(2, 1fr); grid-template-rows: 200px auto; }
+        }
+        @media (max-width: 500px) {
+            .dashboard-container { grid-template-columns: 1fr; grid-template-rows: repeat(4, 160px) auto; }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="dashboard-container">
+        <div class="kpi-chart"><canvas id="chart0"></canvas></div>
+        <div class="kpi-chart"><canvas id="chart1"></canvas></div>
+        <div class="kpi-chart"><canvas id="chart2"></canvas></div>
+        <div class="kpi-chart"><canvas id="chart3"></canvas></div>
+
+        <div class="table-panel">
+            <div class="table-header">
+                <h2>상세 메트릭 (20개)</h2>
+                <button id="open-modal-btn" 
+                        style="background-color: #007bff; color: white; padding: 8px 15px; border: none; border-radius: 6px; cursor: pointer;">
+                    직전 30초 전체 데이터 보기
+                </button>
+            </div>
+
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th style="width: 25%;">메트릭 이름 (단위)</th>
+                        <th style="width: 8%;">3초전</th>
+                        <th style="width: 8%;">2초전</th>
+                        <th style="width: 8%;">1초전</th>
+                        <th style="width: 8%;">최신 값</th>
+                        <th style="width: 15%;">30초 변화 추이</th>
+                        <th style="width: 33%;">설명 (Original Key)</th>
+                    </tr>
+                </thead>
+                <tbody id="metric-table-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="history-modal" class="modal" role="dialog" aria-modal="true">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 style="margin:0; padding:0;">직전 30초 상세 데이터 히스토리</h3>
+                <button class="close-btn" id="modal-close-btn" title="닫기">&times;</button>
+            </div>
+
+            <div class="modal-body">
+                <div class="modal-table-wrapper">
+                    <table id="modal-data-table" class="modal-table">
+                        <thead><tr></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+    const featureKeys = [
+        { key: 'RTT_ms_mean', unit: 'ms', desc: '평균 왕복 시간 (네트워크 지연)' },
+        { key: 'Recv_Q_Bytes_max', unit: 'Bytes', desc: '수신 큐 최대 바이트' },
+        { key: 'Send_Q_Bytes_max', unit: 'Bytes', desc: '송신 큐 최대 바이트' },
+        { key: 'cwnd_min', unit: 'Segments', desc: '최소 혼잡 윈도우' },
+        { key: 'ssthresh_min', unit: 'Segments', desc: '최소 Slow Start Threshold' },
+        { key: 'packet_loss_rate_pct', unit: '%', desc: '패킷 손실률' },
+        { key: 'retrans_segs_per_sec', unit: 'segs/s', desc: '초당 재전송 세그먼트 수' },
+        { key: 'conn_fail_rate_server', unit: 'rate', desc: '서버 연결 실패율' },
+        { key: 'listen_drops_per_sec', unit: 'drops/s', desc: '초당 리슨 드롭 수' },
+        { key: 'iostat_r_await', unit: 'ms', desc: 'I/O 읽기 대기 시간' },
+        { key: 'iostat_aqu_sz', unit: 'QueueLen', desc: 'I/O 큐 길이' },
+        { key: 'nic_usage_pct', unit: '%', desc: '네트워크 인터페이스 사용률' },
+        { key: 'total_packets_per_sec', unit: 'pkts/s', desc: '초당 전체 패킷 수' },
+        { key: 'total_mem_events_per_sec', unit: 'events/s', desc: '초당 메모리 이벤트 수' },
+        { key: 'cpu_throttle_per_sec', unit: 'throttles/s', desc: '초당 CPU 스로틀링 횟수' },
+        { key: 'softirq_net_rx_per_sec', unit: 'irqs/s', desc: '소프트IRQ 네트워크 수신 처리율' },
+        { key: 'softirq_net_tx_per_sec', unit: 'irqs/s', desc: '소프트IRQ 네트워크 송신 처리율' },
+        { key: 'used_MB', unit: 'MB', desc: '사용된 메모리' },
+        { key: 'available_MB', unit: 'MB', desc: '사용 가능 메모리' },
+        { key: 'run_queue_len_cpu0', unit: 'Tasks', desc: 'CPU 0의 실행 대기열 길이' }
+    ];
+
+    const allKeys = featureKeys.map(f => f.key);
+    const kpiKeys = ['RTT_ms_mean','nic_usage_pct','used_MB','total_packets_per_sec'];
+
+    const KPI_COLOR = ['#007bff','#28a745','#ffc107','#dc3545'];
+    const HISTORY_MAX_LENGTH = 30;
+
+    const charts = new Array(kpiKeys.length);
+    const sparklineCharts = {};
+    const metricHistory = {};
+    const timeHistory = [];
+
+    function fmtVal(v) {
+        if (v === null || v === undefined || Number.isNaN(v)) return '-';
+        if (typeof v === 'number') return v.toFixed(3);
+        const n = Number(v);
+        return Number.isNaN(n) ? '-' : n.toFixed(3);
+    }
+
+    featureKeys.forEach((feature, i) => {
+        const key = feature.key;
+        metricHistory[key] = [];
+
+        if (kpiKeys.includes(key)) {
+            const idx = kpiKeys.indexOf(key);
+            const canvas = document.getElementById(`chart${idx}`);
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+
+            charts[idx] = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: `${feature.desc} (${feature.unit})`,
+                        data: [],
+                        borderColor: KPI_COLOR[idx],
+                        backgroundColor: KPI_COLOR[idx] + '33',
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 0
+                    }]
+                },
+                options: {
+                    animation: false,
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: true },
+                        title: { display: true, text: `${feature.desc} (${feature.unit})` }
+                    },
+                    scales: { x: { display: false }, y: { beginAtZero: false } }
+                }
+            });
+        }
+    });
+
+    const tableBody = document.getElementById('metric-table-body');
+    featureKeys.forEach((feature, i) => {
+        const key = feature.key;
+        const sparklineId = `sparkline-${key}`;
+
+        const row = tableBody.insertRow();
+        row.id = `row-${key}`;
+
+        row.innerHTML = `
+            <td>${feature.desc} (${feature.unit})</td>
+            <td id="val-${key}-3" class="recent-val">-</td>
+            <td id="val-${key}-2" class="recent-val">-</td>
+            <td id="val-${key}-1" class="recent-val">-</td>
+            <td id="val-${key}-0" class="recent-val latest-val">-</td>
+            <td><div class="sparkline-container"><canvas id="${sparklineId}"></canvas></div></td>
+            <td>${key}</td>
+        `;
+
+        const ctx = document.getElementById(sparklineId).getContext('2d');
+        sparklineCharts[key] = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: Array(HISTORY_MAX_LENGTH).fill(''),
+                datasets: [{
+                    data: [],
+                    borderColor: KPI_COLOR[i % KPI_COLOR.length],
+                    borderWidth: 1,
+                    fill: false,
+                    tension: 0.3,
+                    pointRadius: 0
+                }]
+            },
+            options: {
+                animation: false,
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                scales: { x: { display: false }, y: { display: false } }
+            }
+        });
+    });
+
+    async function fetchFeatures() {
+        try {
+            const res = await fetch('/monitor/api');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+
+            const now = new Date().toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+            if (timeHistory.length >= HISTORY_MAX_LENGTH) timeHistory.shift();
+            timeHistory.push(now);
+
+            featureKeys.forEach(feature => {
+                const key = feature.key;
+                const raw = data[key];
+                const value = (raw === undefined) ? null : (typeof raw === 'number' ? raw : Number(raw));
+
+                const history = metricHistory[key];
+                if (history.length >= HISTORY_MAX_LENGTH) history.shift();
+                history.push(value);
+
+                if (kpiKeys.includes(key)) {
+                    const idx = kpiKeys.indexOf(key);
+                    const chart = charts[idx];
+                    if (chart) {
+                        const clean = history.map(v => (v === null || v === undefined || Number.isNaN(v)) ? 0 : v);
+                        chart.data.labels = [...timeHistory];
+                        chart.data.datasets[0].data = clean;
+                        chart.update('none');
+                    }
+                }
+
+                const spark = sparklineCharts[key];
+                if (spark) {
+                    // Chart.js can accept shorter arrays
+                    spark.data.datasets[0].data = history.map(v => (v === null || v === undefined || Number.isNaN(v)) ? null : v);
+                    spark.update('none');
+                }
+
+                const n = history.length;
+                const safeGet = (idxFromEnd) => {
+                    const idx = n - 1 - idxFromEnd;
+                    if (idx < 0 || idx >= n) return null;
+                    return history[idx];
+                };
+                document.getElementById(`val-${key}-3`).innerText = fmtVal(safeGet(3));
+                document.getElementById(`val-${key}-2`).innerText = fmtVal(safeGet(2));
+                document.getElementById(`val-${key}-1`).innerText = fmtVal(safeGet(1));
+                document.getElementById(`val-${key}-0`).innerText = fmtVal(value);
+
+                const cell = document.getElementById(`val-${key}-0`);
+                cell.classList.add('updated');
+                setTimeout(() => cell.classList.remove('updated'), 500);
+            });
+
+        } catch (err) {
+            console.error("데이터 가져오기 실패:", err);
+        }
+    }
+
+    setInterval(fetchFeatures, 1000);
+
+    const modal = document.getElementById("history-modal");
+    const btn = document.getElementById("open-modal-btn");
+    const closeBtn = document.getElementById("modal-close-btn");
+    const modalHead = document.querySelector("#modal-data-table thead tr");
+    const modalBody = document.querySelector("#modal-data-table tbody");
+
+    let modalUpdateInterval = null;
+
+    function openModal() {
+        updateModalTable();
+        modal.style.display = 'flex';
+        if (modalUpdateInterval === null) {
+            modalUpdateInterval = setInterval(updateModalTable, 1000);
+        }
+    }
+
+    function closeModal() {
+        modal.style.display = 'none';
+        if (modalUpdateInterval !== null) {
+            clearInterval(modalUpdateInterval);
+            modalUpdateInterval = null;
+        }
+    }
+
+    btn.onclick = openModal;
+    closeBtn.onclick = closeModal;
+    window.onclick = (e) => { if (e.target === modal) closeModal(); };
+
+    function updateModalTable() {
+        let headHTML = `<th>메트릭 이름</th>`;
+        for (let i = HISTORY_MAX_LENGTH - 1; i >= 0; i--) {
+            headHTML += `<th>${i}초 전</th>`;
+        }
+        modalHead.innerHTML = headHTML;
+
+        let bodyHTML = '';
+        featureKeys.forEach(feature => {
+            const key = feature.key;
+            const history = metricHistory[key] || [];
+            const missing = HISTORY_MAX_LENGTH - history.length;
+            const fullHistory = Array(missing).fill(null).concat(history);
+
+            let row = `<tr><td>${feature.desc} (${feature.unit})</td>`;
+            fullHistory.forEach(v => row += `<td>${v === null || v === undefined || Number.isNaN(v) ? '-' : v.toFixed(3)}</td>`);
+            row += `</tr>`;
+            bodyHTML += row;
+        });
+
+        modalBody.innerHTML = bodyHTML;
+
+    }
+
+    updateModalTable();
+
+</script>
+</body>
+</html>
