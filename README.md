@@ -52,8 +52,8 @@
 
 * **데이터셋 명칭:** Encrypted Web Traffic Dataset: Event Logs and Packet Traces
 * **제공 기관:** 체코 마사리크 대학교 CSIRT-MU (Masaryk University, Czech Republic)
-* **사용 범위:** 8일치 트래픽 데이터 (로그 및 패킷)
-* **학술적 배경:** Data in Brief 저널 제출 논문 관련 자료
+* **사용 범위:** 8일치 트래픽 데이터 (pcap 파일)
+* **학술적 배경:** Data in Brief 논문
 * **원문 링크:** (https://www.scidb.cn/en/detail?dataSetId=ec72229d46624e4e8b8528dd0485f5b4#p2)
 
 **[필수]** 해당 데이터셋을 사용하실 경우, 원저작자가 요구하는 라이선스 조건을 준수해야 합니다.
