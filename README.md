@@ -43,8 +43,14 @@
 ---
 
 ## 💻 웹 UI
+### 1. 메인 대시보드 (Main Dashboard)
+실시간 시스템 상태(정상/위험), 네트워크 트래픽 추이, 그리고 가장 중요한 **실측 RTT와 예측 RTT 그래프**를 제공합니다. 예측 RTT가 임계치를 초과할 경우 즉시 경고를 표시합니다.
 <img width="809" height="401" alt="image" src="https://github.com/user-attachments/assets/cfc7aa0c-2837-4832-8f8f-cbf4566cfeeb" />
+### 2. 상세 분석 페이지 (Detailed Analysis)
+RTT 예측에 영향을 미친 주요 Feature들의 실시간 값을 보여줍니다. 어떤 메트릭(예: TCP 재전송 증가, CPU 부하 등)이 RTT 증가의 원인인지 파악할 수 있습니다.
 <img width="834" height="401" alt="image" src="https://github.com/user-attachments/assets/eafa9348-a26b-4764-a685-95ada9000ce2" />
+### 3. 히스토리 조회
+과거 RTT 데이터 이력과 발생했던 알림 로그를 조회할 수 있습니다.
 <img width="826" height="391" alt="image" src="https://github.com/user-attachments/assets/9747e368-1595-4afb-8dd7-3277fa4e2882" />
 
 
